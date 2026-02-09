@@ -89,14 +89,47 @@ class _StopwatchPageState extends State<StopwatchPage> {
     final hours = twoDigits(duration.inHours);
     final minutes = twoDigits(duration.inMinutes.remainder(60));
     final seconds = twoDigits(duration.inSeconds.remainder(60));
-    final centiseconds = twoDigits((duration.inMilliseconds.remainder(1000) ~/ 10));
+    final centiseconds =
+        twoDigits((duration.inMilliseconds.remainder(1000) ~/ 10));
     return '$hours:$minutes:$seconds.$centiseconds';
+  }
+
+  /// Compute per-lap split durations and find best/worst indices
+  List<Duration> get _lapSplits {
+    final splits = <Duration>[];
+    for (int i = 0; i < _laps.length; i++) {
+      final previousLapTime = i < _laps.length - 1 ? _laps[i + 1] : Duration.zero;
+      splits.add(_laps[i] - previousLapTime);
+    }
+    return splits;
+  }
+
+  int? get _bestLapIndex {
+    if (_laps.length < 2) return null;
+    final splits = _lapSplits;
+    int best = 0;
+    for (int i = 1; i < splits.length; i++) {
+      if (splits[i] < splits[best]) best = i;
+    }
+    return best;
+  }
+
+  int? get _worstLapIndex {
+    if (_laps.length < 2) return null;
+    final splits = _lapSplits;
+    int worst = 0;
+    for (int i = 1; i < splits.length; i++) {
+      if (splits[i] > splits[worst]) worst = i;
+    }
+    return worst;
   }
 
   @override
   Widget build(BuildContext context) {
     final elapsed = _stopwatch.elapsed;
     final isRunning = _stopwatch.isRunning;
+    final bestIdx = _bestLapIndex;
+    final worstIdx = _worstLapIndex;
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -135,15 +168,15 @@ class _StopwatchPageState extends State<StopwatchPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Reset / Lap button
               _buildControlButton(
-                onPressed: isRunning ? _addLap : (_stopwatch.elapsedMilliseconds > 0 ? _reset : null),
+                onPressed: isRunning
+                    ? _addLap
+                    : (_stopwatch.elapsedMilliseconds > 0 ? _reset : null),
                 icon: isRunning ? Icons.flag : Icons.refresh,
                 label: isRunning ? 'Lap' : 'Reset',
                 isPrimary: false,
               ),
               const SizedBox(width: 24),
-              // Start / Pause button
               _buildControlButton(
                 onPressed: _toggleStartPause,
                 icon: isRunning ? Icons.pause : Icons.play_arrow,
@@ -168,6 +201,40 @@ class _StopwatchPageState extends State<StopwatchPage> {
                     ),
                   ),
                   const Spacer(),
+                  if (bestIdx != null) ...[
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text('Best',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text('Worst',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
+                    const SizedBox(width: 12),
+                  ],
                   Text(
                     '${_laps.length}',
                     style: TextStyle(
@@ -186,8 +253,22 @@ class _StopwatchPageState extends State<StopwatchPage> {
                 itemBuilder: (context, index) {
                   final lapNumber = _laps.length - index;
                   final lapTime = _laps[index];
-                  final previousLapTime = index < _laps.length - 1 ? _laps[index + 1] : Duration.zero;
+                  final previousLapTime =
+                      index < _laps.length - 1 ? _laps[index + 1] : Duration.zero;
                   final lapDuration = lapTime - previousLapTime;
+
+                  final isBest = index == bestIdx;
+                  final isWorst = index == worstIdx;
+
+                  Color? highlightColor;
+                  IconData? badgeIcon;
+                  if (isBest) {
+                    highlightColor = Colors.green;
+                    badgeIcon = Icons.bolt;
+                  } else if (isWorst) {
+                    highlightColor = Colors.red;
+                    badgeIcon = Icons.trending_down;
+                  }
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 8),
@@ -195,6 +276,9 @@ class _StopwatchPageState extends State<StopwatchPage> {
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.surfaceContainerHigh,
                       borderRadius: BorderRadius.circular(12),
+                      border: highlightColor != null
+                          ? Border.all(color: highlightColor.withOpacity(0.6), width: 1.5)
+                          : null,
                     ),
                     child: Row(
                       children: [
@@ -202,17 +286,22 @@ class _StopwatchPageState extends State<StopwatchPage> {
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primaryContainer,
+                            color: highlightColor?.withOpacity(0.2) ??
+                                Theme.of(context).colorScheme.primaryContainer,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Center(
-                            child: Text(
-                              '$lapNumber',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onPrimaryContainer,
-                              ),
-                            ),
+                            child: highlightColor != null
+                                ? Icon(badgeIcon, size: 20, color: highlightColor)
+                                : Text(
+                                    '$lapNumber',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onPrimaryContainer,
+                                    ),
+                                  ),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -222,10 +311,11 @@ class _StopwatchPageState extends State<StopwatchPage> {
                             children: [
                               Text(
                                 _formatDuration(lapTime),
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontFamily: 'monospace',
                                   fontWeight: FontWeight.w500,
+                                  color: highlightColor,
                                 ),
                               ),
                               Text(
@@ -233,12 +323,25 @@ class _StopwatchPageState extends State<StopwatchPage> {
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontFamily: 'monospace',
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  color: highlightColor?.withOpacity(0.7) ??
+                                      Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        if (highlightColor != null)
+                          Text(
+                            isBest ? 'BEST' : 'WORST',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                              color: highlightColor,
+                            ),
+                          ),
                       ],
                     ),
                   );
@@ -254,14 +357,20 @@ class _StopwatchPageState extends State<StopwatchPage> {
                     Icon(
                       Icons.timer_outlined,
                       size: 64,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.3),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withOpacity(0.3),
                     ),
                     const SizedBox(height: 16),
                     Text(
                       'Press Start to begin',
                       style: TextStyle(
                         fontSize: 16,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurfaceVariant
+                            .withOpacity(0.5),
                       ),
                     ),
                   ],
@@ -292,7 +401,10 @@ class _StopwatchPageState extends State<StopwatchPage> {
                 ? (isPrimary
                     ? Theme.of(context).colorScheme.primary
                     : Theme.of(context).colorScheme.surfaceContainerHighest)
-                : Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                : Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withOpacity(0.5),
           ),
           child: Material(
             color: Colors.transparent,
@@ -307,7 +419,10 @@ class _StopwatchPageState extends State<StopwatchPage> {
                       ? (isPrimary
                           ? Theme.of(context).colorScheme.onPrimary
                           : Theme.of(context).colorScheme.onSurfaceVariant)
-                      : Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.3),
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withOpacity(0.3),
                 ),
               ),
             ),
@@ -320,7 +435,10 @@ class _StopwatchPageState extends State<StopwatchPage> {
             fontSize: 14,
             color: isEnabled
                 ? Theme.of(context).colorScheme.onSurface
-                : Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5),
+                : Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withOpacity(0.5),
           ),
         ),
       ],
